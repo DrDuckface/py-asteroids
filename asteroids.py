@@ -1,4 +1,4 @@
-# program template for Spaceship
+# implementation of Spaceship - program template for RiceRocks
 import simplegui
 import math
 import random
@@ -8,7 +8,8 @@ WIDTH = 800
 HEIGHT = 600
 score = 0
 lives = 3
-time = 0.5
+time = 0
+started = False
 
 class ImageInfo:
     def __init__(self, center, size, radius = 0, lifespan = None, animated = False):
@@ -36,6 +37,8 @@ class ImageInfo:
     def get_animated(self):
         return self.animated
 
+    
+# art assets created by Kim Lathrop, may be freely re-used in non-commercial projects, please credit Kim
     
 # debris images - debris1_brown.png, debris2_brown.png, debris3_brown.png, debris4_brown.png
 #                 debris1_blue.png, debris2_blue.png, debris3_blue.png, debris4_blue.png, debris_blend.png
@@ -67,6 +70,7 @@ explosion_info = ImageInfo([64, 64], [128, 128], 17, 24, True)
 explosion_image = simplegui.load_image("http://commondatastorage.googleapis.com/codeskulptor-assets/lathrop/explosion_alpha.png")
 
 # sound assets purchased from sounddogs.com, please do not redistribute
+# .ogg versions of sounds are also available, just replace .mp3 by .ogg
 soundtrack = simplegui.load_sound("http://commondatastorage.googleapis.com/codeskulptor-assets/sounddogs/soundtrack.mp3")
 missile_sound = simplegui.load_sound("http://commondatastorage.googleapis.com/codeskulptor-assets/sounddogs/missile.mp3")
 missile_sound.set_volume(.5)
@@ -77,15 +81,61 @@ explosion_sound = simplegui.load_sound("http://commondatastorage.googleapis.com/
 def angle_to_vector(ang):
     return [math.cos(ang), math.sin(ang)]
 
-def dist(p,q):
-    return math.sqrt((p[0] - q[0]) ** 2+(p[1] - q[1]) ** 2)
+def dist(p, q):
+    return math.sqrt((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2)
+
+def process_sprite_group(group, canvas):
+    positions_to_pop = []
+    
+    for n in range(len(group)):
+        group[n].draw(canvas)
+        if group[n].update():
+            positions_to_pop.append(n)
+    
+    for position in positions_to_pop:
+        group.pop(position)
+        
+def group_collide(group, other_object):
+    was_collision = False
+    positions_to_pop = []
+    
+    # cycle through group list and find positions
+    # where collision occured
+    for n in range(0, len(group)):
+        if group[n].collide(other_object):
+            positions_to_pop.append(n)
+            was_collision = True
+    
+    # remove collision positions from the group
+    for position in positions_to_pop:
+        group.pop(position)
+            
+    return was_collision
+
+
+def group_group_collide(group1, group2):
+    num_collisions = 0
+    positions_to_pop_group2 = []
+    
+    # test group1 against each object in group2 for collisions
+    for n in range(len(group2)):
+        if group_collide(group1, group2[n]):
+            positions_to_pop_group2.append(n)
+            num_collisions += 1
+    
+    # remove collided stuff from each group  
+    for position in positions_to_pop_group2:
+        group2.pop(position)
+    
+    return num_collisions
+       
 
 # Ship class
 class Ship:
+
     def __init__(self, pos, vel, angle, image, info):
-        self.pos = [pos[0],pos[1]]
-        self.vel = [vel[0],vel[1]]
-        self.rotating = False
+        self.pos = [pos[0], pos[1]]
+        self.vel = [vel[0], vel[1]]
         self.thrust = False
         self.angle = angle
         self.angle_vel = 0
@@ -95,66 +145,60 @@ class Ship:
         self.radius = info.get_radius()
         
     def draw(self,canvas):
-        canvas.draw_image(
-            self.image, 
-            self.image_center, 
-            self.image_size, 
-            self.pos, 
-            self.image_size,
-            self.angle)
-            
+        if self.thrust:
+            canvas.draw_image(self.image, [self.image_center[0] + self.image_size[0], self.image_center[1]] , self.image_size,
+                              self.pos, self.image_size, self.angle)
+        else:
+            canvas.draw_image(self.image, self.image_center, self.image_size,
+                              self.pos, self.image_size, self.angle)
+        # canvas.draw_circle(self.pos, self.radius, 1, "White", "White")
+        
+    def get_position(self):
+        return self.pos
+    
+    def get_radius(self):
+        return self.radius
 
     def update(self):
-        # change position and screen wrap
+        # update angle
+        self.angle += self.angle_vel
+        
+        # update position
         self.pos[0] = (self.pos[0] + self.vel[0]) % WIDTH
         self.pos[1] = (self.pos[1] + self.vel[1]) % HEIGHT
-        
-        # change angle
-        if self.rotating == True:
-            self.angle += self.angle_vel
-        else:
-            self.angle_vel = 0
-        
-        # change ship velocity based on angle
-        thrust = 0.25
-        vector = angle_to_vector(self.angle)
 
-        # thrusting
-        if self.thrust == True:
-            self.image_center = [135, 45]
-            ship_thrust_sound.play()
-            self.vel[0] += (vector[0] * thrust)
-            self.vel[1] += (vector[1] * thrust)
-        else:
-            self.image_center = [45, 45]
+        # update velocity
+        if self.thrust:
+            acc = angle_to_vector(self.angle)
+            self.vel[0] += acc[0] * .1
+            self.vel[1] += acc[1] * .1
+            
+        self.vel[0] *= .99
+        self.vel[1] *= .99
+
+    def set_thrust(self, on):
+        self.thrust = on
+        if on:
             ship_thrust_sound.rewind()
-            
-        # deceleration
-        self.vel[0] *= .95
-        self.vel[1] *= .95
-            
+            ship_thrust_sound.play()
+        else:
+            ship_thrust_sound.pause()
+       
+    def increment_angle_vel(self):
+        self.angle_vel += .05
         
-    def rotate(self, radians):
-        self.angle_vel += radians
-    
-    
+    def decrement_angle_vel(self):
+        self.angle_vel -= .05
+        
     def shoot(self):
-        global a_missile
+        global missile_group
         
-        vector = angle_to_vector(self.angle)
-        
-        # calculate velocity
-        vel_mult = 5
-        vel_x = self.vel[0] + vector[0] * vel_mult
-        vel_y = self.vel[1] + vector[1] * vel_mult
-        
-        # calculate front edge of ship
-        pos_x = self.pos[0] + 45 * vector[0]
-        pos_y = self.pos[1] + 45 * vector[1]
-        
-        # draw
-        a_missile = Sprite([pos_x, pos_y], [vel_x, vel_y], 0, 0, missile_image, missile_info, missile_sound)
-        
+        forward = angle_to_vector(self.angle)
+        missile_pos = [self.pos[0] + self.radius * forward[0], self.pos[1] + self.radius * forward[1]]
+        missile_vel = [self.vel[0] + 6 * forward[0], self.vel[1] + 6 * forward[1]]
+        missile_group.append(Sprite(missile_pos, missile_vel, self.angle, 0, missile_image, missile_info, missile_sound))
+    
+    
     
 # Sprite class
 class Sprite:
@@ -175,26 +219,99 @@ class Sprite:
             sound.play()
    
     def draw(self, canvas):
-        canvas.draw_image(
-            self.image, 
-            self.image_center, 
-            self.image_size, 
-            self.pos, 
-            self.image_size,
-            self.angle)
+        canvas.draw_image(self.image, self.image_center, self.image_size,
+                          self.pos, self.image_size, self.angle)
         
+    def get_position(self):
+        return self.pos
     
+    def get_radius(self):
+        return self.radius
+
     def update(self):
-        # change position and screen wrap
+        # update angle
+        self.angle += self.angle_vel
+        
+        # update position
         self.pos[0] = (self.pos[0] + self.vel[0]) % WIDTH
         self.pos[1] = (self.pos[1] + self.vel[1]) % HEIGHT
+        
+        # iterate age
+        self.age += 1
+        
+        return self.age > self.lifespan
+        
+    
+    def collide(self, other_object):
+        did_collide = False
+        pos_other_object = other_object.get_position()
+        
+        # x position 
+        x_pos_self = self.pos[0]
+        x_pos_other_object = pos_other_object[0]
+        
+        # y position
+        y_pos_self = self.pos[1]
+        y_pos_other_object = pos_other_object[1]
+         
+        # determine left-right
+        if x_pos_self > x_pos_other_object:
+            right = x_pos_self
+            left = x_pos_other_object
+        else:
+            right = x_pos_other_object
+            left = x_pos_self
+        
+        # determine top-bottom
+        if y_pos_self > y_pos_other_object:
+            top = y_pos_self
+            bottom = y_pos_other_object
+        else:
+            top = y_pos_other_object
+            bottom = y_pos_self
+        
+        # check overlap x-axis
+        if (left + self.get_radius()) > (right - other_object.get_radius()):
+            # check overlap y-axis
+            if (bottom + self.get_radius()) > (top - other_object.get_radius()):
+                did_collide = True
+               
+        return did_collide
 
-        # rotate
-        self.angle += self.angle_vel      
+        
+# key handlers to control ship   
+def keydown(key):
+    if key == simplegui.KEY_MAP['left']:
+        my_ship.decrement_angle_vel()
+    elif key == simplegui.KEY_MAP['right']:
+        my_ship.increment_angle_vel()
+    elif key == simplegui.KEY_MAP['up']:
+        my_ship.set_thrust(True)
+    elif key == simplegui.KEY_MAP['space']:
+        my_ship.shoot()
+        
+def keyup(key):
+    if key == simplegui.KEY_MAP['left']:
+        my_ship.increment_angle_vel()
+    elif key == simplegui.KEY_MAP['right']:
+        my_ship.decrement_angle_vel()
+    elif key == simplegui.KEY_MAP['up']:
+        my_ship.set_thrust(False)
+        
+        
+# mouseclick handlers that reset UI and conditions whether splash image is drawn
+def click(pos):
+    global started
+    center = [WIDTH / 2, HEIGHT / 2]
+    size = splash_info.get_size()
+    inwidth = (center[0] - size[0] / 2) < pos[0] < (center[0] + size[0] / 2)
+    inheight = (center[1] - size[1] / 2) < pos[1] < (center[1] + size[1] / 2)
+    if (not started) and inwidth and inheight:
+        started = True
+        soundtrack.rewind()
 
-           
 def draw(canvas):
-    global time
+    global time, started, lives, score, missile_group, rock_group
     
     # animiate background
     time += 1
@@ -205,75 +322,73 @@ def draw(canvas):
     canvas.draw_image(debris_image, center, size, (wtime - WIDTH / 2, HEIGHT / 2), (WIDTH, HEIGHT))
     canvas.draw_image(debris_image, center, size, (wtime + WIDTH / 2, HEIGHT / 2), (WIDTH, HEIGHT))
 
+    # draw UI
+    canvas.draw_text("Lives", [50, 50], 22, "White")
+    canvas.draw_text("Score", [680, 50], 22, "White")
+    canvas.draw_text(str(lives), [50, 80], 22, "White")
+    canvas.draw_text(str(score), [680, 80], 22, "White")
+
     # draw ship and sprites
     my_ship.draw(canvas)
-    a_rock.draw(canvas)
-    a_missile.draw(canvas)
+    process_sprite_group(missile_group, canvas)
+    
+    # draw and update rocks
+    process_sprite_group(rock_group, canvas)
+    if group_collide(rock_group, my_ship) == True:
+        lives -= 1
+        
+    # collisions between missiles and rocks
+    score += group_group_collide(rock_group, missile_group)
     
     # update ship and sprites
     my_ship.update()
-    a_rock.update()
-    a_missile.update()
     
-    # update lives and score
-    canvas.draw_text("Score: " + str(score), [WIDTH - 130, 30], 20, "white")
-    canvas.draw_text("Lives: " + str(lives), [30, 30], 20, "white")
+    # reset game
+    if lives < 1:
+        started = False
+        missile_group = []
+        rock_group = []
+        score = 0
+        lives = 3
 
-    
+    # draw splash screen if not started
+    if not started:
+        canvas.draw_image(splash_image, splash_info.get_center(), 
+                          splash_info.get_size(), [WIDTH / 2, HEIGHT / 2], 
+                          splash_info.get_size())
+        soundtrack.play()
+        
+
 # timer handler that spawns a rock    
 def rock_spawner():
-    global a_rock
+    global rock_group
     
-    position = [random.randrange(1, WIDTH), random.randrange(1, HEIGHT)]
-    vel_x = random.randrange(5, 20) / float(10)
-    vel_y = random.randrange(5, 20) / float(10)
-    angle = random.randrange(0, 7)
-    angle_vel = random.randrange(-10, 10) / float(100)
-    
-    a_rock = Sprite(position, [vel_x, vel_y], angle, angle_vel, asteroid_image, asteroid_info)
-
-    
-# keyup handler
-def keyup(key):
-    if key == simplegui.KEY_MAP["up"]:
-        my_ship.thrust = False
+    if len(rock_group) < 12 and started == True:
+        rock_pos = [random.randrange(0, WIDTH), random.randrange(0, HEIGHT)]
+        rock_vel = [random.random() * .6 - .3, random.random() * .6 - .3]
+        rock_avel = random.random() * .2 - .1
         
-    elif key == simplegui.KEY_MAP["right"]:
-        my_ship.rotating = False
+        # check if too close to ship
+        if (abs(my_ship.pos[0] - rock_pos[0] < 100) and abs(my_ship.pos[1] - rock_pos[1] < 100)):
+            return
         
-    elif key == simplegui.KEY_MAP["left"]:
-        my_ship.rotating = False
-
-
-# keydown
-def keydown(key):
-    if key == simplegui.KEY_MAP["up"]:
-        my_ship.thrust = True
-    
-    elif key == simplegui.KEY_MAP["right"]:
-        my_ship.rotate(0.1)
-        my_ship.rotating = True
+        # create new rock
+        rock_group.append(Sprite(rock_pos, rock_vel, 0, rock_avel, asteroid_image, asteroid_info))
+     
         
-    elif key == simplegui.KEY_MAP["left"]:
-        my_ship.rotate(-0.1)
-        my_ship.rotating = True
-        
-    elif key == simplegui.KEY_MAP["space"]: 
-        my_ship.shoot()
-        
-        
-# initialize frame
+# initialize stuff
 frame = simplegui.create_frame("Asteroids", WIDTH, HEIGHT)
 
 # initialize ship and two sprites
 my_ship = Ship([WIDTH / 2, HEIGHT / 2], [0, 0], 0, ship_image, ship_info)
-a_rock = Sprite([WIDTH / 3, HEIGHT / 3], [1, 1], 0, .01, asteroid_image, asteroid_info)
-a_missile = Sprite([2 * WIDTH / 3, 2 * HEIGHT / 3], [-1, 1], 0, 0, missile_image, missile_info, missile_sound)
+rock_group = []
+missile_group = []
 
 # register handlers
-frame.set_draw_handler(draw)
-frame.set_keydown_handler(keydown)
 frame.set_keyup_handler(keyup)
+frame.set_keydown_handler(keydown)
+frame.set_mouseclick_handler(click)
+frame.set_draw_handler(draw)
 
 timer = simplegui.create_timer(1000.0, rock_spawner)
 
